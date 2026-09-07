@@ -33,13 +33,22 @@ def firma_valida(cuerpo: bytes, cabecera: str | None, secreto: str) -> bool:
     return hmac.compare_digest(esperado, cabecera.removeprefix("sha256="))
 
 
-def extraer(payload: dict[str, Any]) -> tuple[list[dict], list[dict]]:
+def extraer(
+    payload: dict[str, Any], phone_number_id: str | None = None
+) -> tuple[list[dict], list[dict]]:
     """Saca del webhook los mensajes entrantes y los echoes.
 
     Devuelve (entrantes, echoes). Un *echo* es un mensaje que el negocio mandó
     desde la app de WhatsApp del teléfono: Meta lo reenvía cuando el número
     está en Coexistence. Es lo que permite saber que un humano tomó la
     conversación sin que nadie tenga que avisar.
+
+    Con `phone_number_id` se descarta todo lo que no venga dirigido a NUESTRO
+    número. Importa cuando la app de Meta es de un Tech Provider: esa app está
+    suscrita a las WABAs de varios clientes y firma con un único secreto, así
+    que ese secreto no se puede repartir entre microservicios. Sin firma, esta
+    comprobación es la que impide que un payload ajeno —o inventado— acabe
+    contestándose con la voz de este negocio.
 
     Tolerante a propósito: si Meta cambia el envoltorio, se ignora lo que no
     se entiende en vez de reventar el webhook — un webhook que devuelve 500 se
@@ -51,6 +60,13 @@ def extraer(payload: dict[str, Any]) -> tuple[list[dict], list[dict]]:
         for cambio in entrada.get("changes") or []:
             valor = cambio.get("value") or {}
             campo = cambio.get("field") or ""
+            if phone_number_id:
+                nuestro = (valor.get("metadata") or {}).get("phone_number_id")
+                if nuestro and nuestro != phone_number_id:
+                    logger.warning(
+                        "webhook dirigido a otro número (%s): descartado", nuestro
+                    )
+                    continue
             contactos = {
                 c.get("wa_id"): (c.get("profile") or {}).get("name")
                 for c in (valor.get("contacts") or [])

@@ -70,6 +70,13 @@ async def recibir(token: str, request: Request) -> Response:
     ctx: Contexto = request.app.state.ctx
     cuerpo = await request.body()
 
+    # Un webhook de WhatsApp no pesa esto ni con el adjunto más generoso. El
+    # tope evita que alguien que conozca la URL gaste memoria del contenedor
+    # mandando cuerpos enormes.
+    if len(cuerpo) > 512_000:
+        logger.warning("payload de %d bytes: descartado por tamaño", len(cuerpo))
+        return PlainTextResponse("payload too large", status_code=413)
+
     if token != ctx.settings.webhook_token:
         return PlainTextResponse("forbidden", status_code=403)
     if not firma_valida(
@@ -83,7 +90,7 @@ async def recibir(token: str, request: Request) -> Response:
     except Exception:
         return JSONResponse({"ok": True})
 
-    entrantes, echoes = extraer(payload)
+    entrantes, echoes = extraer(payload, ctx.settings.wa_phone_number_id)
     for echo in echoes:
         asyncio.create_task(_seguro(procesar_echo(ctx, echo), "echo"))
     for mensaje in entrantes:

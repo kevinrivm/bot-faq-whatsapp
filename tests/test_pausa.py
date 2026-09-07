@@ -135,3 +135,31 @@ class TestConfig:
     def test_la_allowlist_se_canonicaliza(self) -> None:
         s = Settings(_env_file=None, numeros_permitidos="5214621349768, 524629999999")
         assert s.identidades_permitidas == {"524621349768", "524629999999"}
+
+
+class TestNumeroPropio:
+    """Sin firma de Meta —imposible con una app de Tech Provider, cuyo secreto
+    es uno solo para todos los clientes— esta es la comprobación que impide
+    que un payload ajeno se conteste con la voz de este negocio."""
+
+    def _payload(self, phone_number_id: str) -> dict:
+        return {"entry": [{"changes": [{
+            "field": "messages",
+            "value": {
+                "metadata": {"phone_number_id": phone_number_id},
+                "messages": [{"id": "wamid.9", "from": "5214621349768",
+                              "type": "text", "text": {"body": "hola"}}],
+            },
+        }]}]}
+
+    def test_lo_dirigido_a_nuestro_numero_pasa(self) -> None:
+        entrantes, _ = extraer(self._payload("1210878062111901"), "1210878062111901")
+        assert len(entrantes) == 1
+
+    def test_lo_dirigido_a_otro_numero_se_descarta(self) -> None:
+        entrantes, echoes = extraer(self._payload("999999999999"), "1210878062111901")
+        assert entrantes == [] and echoes == []
+
+    def test_sin_numero_configurado_no_se_filtra(self) -> None:
+        entrantes, _ = extraer(self._payload("999999999999"), None)
+        assert len(entrantes) == 1
